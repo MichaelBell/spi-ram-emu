@@ -5,6 +5,7 @@
 #include <hardware/spi.h>
 #include <hardware/dma.h>
 #include <pico/multicore.h>
+#include "hardware/structs/bus_ctrl.h"
 
 #include "sram.pio.h"
 
@@ -85,9 +86,9 @@ void __scratch_x("core1_main") core1_main()
 {
     init_sram_pio();
 
-    rx_channel = dma_claim_unused_channel(true);
-    tx_channel = dma_claim_unused_channel(true);
-    tx_channel2 = dma_claim_unused_channel(true);
+    rx_channel = 0; dma_channel_claim(0);
+    tx_channel = 1; dma_channel_claim(1);
+    tx_channel2 = 2; dma_channel_claim(2);
 
     reset_rx_channel();
     reset_tx_channel();
@@ -103,17 +104,17 @@ void __scratch_x("core1_main") core1_main()
 
             // This horrendousness is required due to the interaction
             // between pull noblock and the dreq for the DMA
-            dma_hw->ch[tx_channel2].al3_read_addr_trig = addr;
-            dma_hw->ch[tx_channel].read_addr = addr+1;
+            dma_hw->ch[2].al3_read_addr_trig = addr;
+            dma_hw->ch[1].read_addr = addr+1;
 
             while (gpio_get(SPI_CS) == 0) {
                 pio_sm_get(pio, pio_sm);
             }
-            dma_channel_abort(tx_channel);
+            dma_channel_abort(1);
             pio_sm_set_enabled(pio, pio_sm, false);
             pio_sm_clear_fifos(pio, pio_sm);
             //reset_tx_channel();
-            dma_hw->ch[tx_channel].transfer_count = 65536;
+            dma_hw->ch[1].transfer_count = 65536;
             pio_sm_restart(pio, pio_sm);
             pio_sm_exec(pio, pio_sm, pio_encode_jmp(pio_offset));
             pio_sm_set_enabled(pio, pio_sm, true);
@@ -122,14 +123,14 @@ void __scratch_x("core1_main") core1_main()
             // Write
             addr += pio_sm_get_blocking(pio, pio_sm) << 8;
             addr += pio_sm_get_blocking(pio, pio_sm);
-            dma_hw->ch[rx_channel].al2_write_addr_trig = addr;
+            dma_hw->ch[0].al2_write_addr_trig = addr;
 
             while (gpio_get(SPI_CS) == 0);
             while (!pio_sm_is_rx_fifo_empty(pio, pio_sm));
             pio_sm_set_enabled(pio, pio_sm, false);
-            dma_channel_abort(rx_channel);
+            dma_channel_abort(0);
             //reset_rx_channel();
-            dma_hw->ch[rx_channel].transfer_count = 65536;
+            dma_hw->ch[0].transfer_count = 65536;
             pio_sm_exec(pio, pio_sm, pio_encode_jmp(pio_offset));
             pio_sm_set_enabled(pio, pio_sm, true);
         }
@@ -158,6 +159,7 @@ int main() {
     gpio_set_function(19, GPIO_FUNC_SPI);
     gpio_set_function(20, GPIO_FUNC_SPI);
 
+    hw_set_bits(&bus_ctrl_hw->priority, BUSCTRL_BUS_PRIORITY_PROC1_BITS);
     multicore_launch_core1(core1_main);
     sleep_ms(2);
 
@@ -196,7 +198,7 @@ int main() {
             }
 #endif
             
-            sleep_us(2);
+            //sleep_us(1);
             if (!ok) {
                 printf("Read from addr %x: FAIL!\n", addr);
                 speed--;
@@ -233,7 +235,7 @@ int main() {
             }            
 #endif
 
-            sleep_us(2);
+            //sleep_us(1);
             if (!ok) {
                 printf("Write to addr %x: FAIL!\n", addr);
                 speed--;

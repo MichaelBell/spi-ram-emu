@@ -43,8 +43,8 @@ pico_generate_pio_header(${NAME} ${CMAKE_CURRENT_LIST_DIR}/sram.pio)
 # create map/bin/hex file etc.
 pico_add_extra_outputs(${NAME})
 
-pico_enable_stdio_usb(${NAME} 1)
-pico_enable_stdio_uart(${NAME} 0)
+pico_enable_stdio_usb(${NAME} 0)
+pico_enable_stdio_uart(${NAME} 1)
 
 # Set up files for the release packages
 install(FILES
