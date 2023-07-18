@@ -99,12 +99,7 @@ void __scratch_x("core1_main") core1_main()
             pio_sm_clear_fifos(pio, pio_write_sm);
             pio_sm_restart(pio, pio_write_sm);
             pio_sm_exec(pio, pio_write_sm, pio_encode_jmp(pio_write_offset));
-            pio_sm_set_enabled(pio, pio_read_sm, false);
-            pio_sm_clear_fifos(pio, pio_read_sm);
-            pio_sm_restart(pio, pio_read_sm);
-            pio_sm_exec(pio, pio_read_sm, pio_encode_jmp(pio_read_offset));
             pio_sm_set_enabled(pio, pio_write_sm, true);
-            pio_sm_set_enabled(pio, pio_read_sm, true);
         }
         else if (cmd == 0x2) {
             // Write
@@ -118,10 +113,13 @@ void __scratch_x("core1_main") core1_main()
         }
         else {
             // Ignore unknown command
-            while (gpio_get(SPI_CS) == 0) {
-                pio_sm_get(pio, pio_read_sm);
-            }
+            while (gpio_get(SPI_CS) == 0);
         }
+        pio_sm_set_enabled(pio, pio_read_sm, false);
+        pio_sm_clear_fifos(pio, pio_read_sm);
+        pio_sm_restart(pio, pio_read_sm);
+        pio_sm_exec(pio, pio_read_sm, pio_encode_jmp(pio_read_offset));
+        pio_sm_set_enabled(pio, pio_read_sm, true);            
     }
 }
 
