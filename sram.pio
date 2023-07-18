@@ -37,7 +37,7 @@ read_data_loop:
     push
 
 .program sram_write
-    wait 0 pin 1
+;    wait 0 pin 1
     out pins, 1
     wait 0 pin 1
     wait 1 pin 1

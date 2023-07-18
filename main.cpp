@@ -2,10 +2,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <hardware/pio.h>
 #include <hardware/spi.h>
 #include <hardware/dma.h>
 #include <pico/multicore.h>
 #include "hardware/structs/bus_ctrl.h"
+
+extern "C" {
+    #include "logic.h"
+}
 
 #include "sram.pio.h"
 
@@ -105,7 +110,7 @@ void __scratch_x("core1_main") core1_main()
         if (cmd == 0x3) {
             // Read
             //addr += pio_sm_get_blocking(pio, pio_read_sm) << 8;
-            //addr = pio_sm_get_blocking(pio, pio_read_sm);
+            //uint32_t addr = pio_sm_get_blocking(pio, pio_read_sm);
             //printf("R%08x\n", addr);
             dma_channel_start(2);
 
@@ -141,6 +146,8 @@ void __scratch_x("core1_main") core1_main()
     }
 }
 
+uint32_t logic_buf[1024];
+
 int main() {
     stdio_init_all();
 
@@ -164,10 +171,14 @@ int main() {
     constexpr int BUF_LEN = 8 + 3;
     uint8_t out_buf[BUF_LEN], in_buf[BUF_LEN];
 
+    logic_analyser_init(pio1, 0, 18, 4, 2);    
+
     int speed_incr = 1;
-    for (int speed = 10; speed < 600; speed += speed_incr) {
+    for (int speed = 1; speed < 600; speed += speed_incr) 
+    {
         spi_init(spi0, speed * 100 * 1000);
         printf("\nTesting at %d00kHz\n", speed);
+        //logic_analyser_arm(pio1, 0, 11, logic_buf, 128, 21, false);
         for (int runs = 0; runs < 1000; ++runs) {
             int addr = rand() % (65536 - BUF_LEN);
 
@@ -187,7 +198,7 @@ int main() {
                 printf("%02hhx ", data_buf[i]);
                 if (data_buf[i] != emu_ram[addr + i]) ok = false;
             }
-            printf("%s", ok ? "OK\r" : "FAIL!\n");
+            printf("%s", ok ? "OK\n" : "FAIL!\n");
 #else
             bool ok = true;
             uint8_t* data_buf = &in_buf[3];
@@ -195,9 +206,9 @@ int main() {
                 if (data_buf[i] != emu_ram[addr + i]) ok = false;
             }
 #endif
-            
+            //print_capture_buf(logic_buf, 18, 4, 128*8);
             //sleep_ms(1000);
-            sleep_us(1);
+            //sleep_us(1);
             if (!ok) {
                 printf("Read from addr %04x: ", addr);
                 uint8_t* data_buf = &in_buf[3];
@@ -243,7 +254,7 @@ int main() {
             }            
 #endif
 
-            sleep_us(1);
+            //sleep_us(1);
             if (!ok) {
                 printf("Write to addr %x: FAIL!\n", addr);
                 speed--;
