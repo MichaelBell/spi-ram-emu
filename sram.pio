@@ -5,32 +5,47 @@
 ; Every clock a bit is read and a bit is written
 ; If no bytes are available to transmit, zeros are written
 ; 
-; Pins:
+; Read pins:
 ; IN:  0: MOSI
 ;      1: SCK
 ;      2: CS
-; OUT: 0: MISO
-.program sram
+; OUT: 0: MISO  (write SM only)
+.program sram_read
     wait 0 pin 2
     wait 0 pin 1
-    pull ifempty noblock
-    out pins, 1
     wait 1 pin 1
     in pins, 1
 
+.program sram_write
+    wait 0 pin 1
+    out pins, 1
+    wait 0 pin 1
+    wait 1 pin 1
+    
 % c-sdk {
-void sram_program_init(PIO pio, uint sm, uint offset, uint mosi, uint miso) {
+void sram_read_program_init(PIO pio, uint sm, uint offset, uint mosi) {
     pio_gpio_init(pio, mosi);
     pio_gpio_init(pio, mosi + 1);
-    pio_gpio_init(pio, miso);
-    pio_sm_set_consecutive_pindirs(pio, sm, mosi, 2, false);
-    pio_sm_set_consecutive_pindirs(pio, sm, miso, 1, true);
+    pio_gpio_init(pio, mosi + 2);
+    pio_sm_set_consecutive_pindirs(pio, sm, mosi, 3, false);
 
-    pio_sm_config c = sram_program_get_default_config(offset);
+    pio_sm_config c = sram_read_program_get_default_config(offset);
     sm_config_set_in_pins(&c, mosi);
     sm_config_set_in_shift(&c, false, true, 8);
+
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
+}
+
+void sram_write_program_init(PIO pio, uint sm, uint offset, uint mosi, uint miso) {
+    pio_gpio_init(pio, miso);
+    pio_sm_set_consecutive_pindirs(pio, sm, miso, 1, true);
+
+    pio_sm_config c = sram_write_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, mosi);
     sm_config_set_out_pins(&c, miso, 1);
-    sm_config_set_out_shift(&c, false, false, 8);
+    sm_config_set_out_shift(&c, false, true, 8);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
 
     pio_sm_exec(pio, sm, pio_encode_mov(pio_x, pio_null));
 

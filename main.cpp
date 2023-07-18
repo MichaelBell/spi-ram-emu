@@ -15,8 +15,10 @@
 #define SPI_MISO 5
 
 PIO pio = pio0;
-int pio_sm;
-int pio_offset;
+int pio_read_sm;
+int pio_read_offset;
+int pio_write_sm;
+int pio_write_offset;
 
 int rx_channel;
 int tx_channel, tx_channel2;
@@ -25,10 +27,13 @@ uint8_t emu_ram[65536];
 
 void init_sram_pio()
 {
-    pio_offset = pio_add_program(pio, &sram_program);
-    pio_sm = pio_claim_unused_sm(pio, true);
+    pio_read_offset = pio_add_program(pio, &sram_read_program);
+    pio_read_sm = pio_claim_unused_sm(pio, true);
+    pio_write_offset = pio_add_program(pio, &sram_write_program);
+    pio_write_sm = pio_claim_unused_sm(pio, true);
 
-    sram_program_init(pio, pio_sm, pio_offset, SPI_MOSI, SPI_MISO);
+    sram_read_program_init(pio, pio_read_sm, pio_read_offset, SPI_MOSI);
+    sram_write_program_init(pio, pio_write_sm, pio_write_offset, SPI_MOSI, SPI_MISO);
 }
 
 void __not_in_flash_func(reset_rx_channel)()
@@ -37,13 +42,13 @@ void __not_in_flash_func(reset_rx_channel)()
     channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
     channel_config_set_read_increment(&c, false);
     channel_config_set_write_increment(&c, true);
-    channel_config_set_dreq(&c, pio_get_dreq(pio, pio_sm, false));
+    channel_config_set_dreq(&c, pio_get_dreq(pio, pio_read_sm, false));
 
     dma_channel_configure(
         rx_channel,          // Channel to be configured
         &c,            // The configuration we just created
         NULL,           // The initial write address
-        &pio->rxf[pio_sm],           // The initial read address
+        &pio->rxf[pio_read_sm],           // The initial read address
         65536, // Number of transfers; in this case each is 1 byte.
         false           // Start immediately.
     );
@@ -55,29 +60,14 @@ void __not_in_flash_func(reset_tx_channel)()
     channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
     channel_config_set_read_increment(&c, true);
     channel_config_set_write_increment(&c, false);
-    channel_config_set_dreq(&c, pio_get_dreq(pio, pio_sm, false));
+    channel_config_set_dreq(&c, pio_get_dreq(pio, pio_write_sm, true));
 
     dma_channel_configure(
         tx_channel,          // Channel to be configured
         &c,            // The configuration we just created
-        &pio->txf[pio_sm],           // The initial write address
+        &pio->txf[pio_write_sm],           // The initial write address
         NULL,           // The initial read address
         65536, // Number of transfers; in this case each is 1 byte.
-        false           // Start immediately.
-    );
-
-    c = dma_channel_get_default_config(tx_channel2);
-    channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
-    channel_config_set_read_increment(&c, true);
-    channel_config_set_write_increment(&c, false);
-    channel_config_set_chain_to(&c, tx_channel);
-
-    dma_channel_configure(
-        tx_channel2,          // Channel to be configured
-        &c,            // The configuration we just created
-        &pio->txf[pio_sm],           // The initial write address
-        NULL,           // The initial read address
-        1, // Number of transfers; in this case each is 1 byte.
         false           // Start immediately.
     );
 }
@@ -88,56 +78,48 @@ void __scratch_x("core1_main") core1_main()
 
     rx_channel = 0; dma_channel_claim(0);
     tx_channel = 1; dma_channel_claim(1);
-    tx_channel2 = 2; dma_channel_claim(2);
 
     reset_rx_channel();
     reset_tx_channel();
 
     while (true) {
-        uint32_t cmd = pio_sm_get_blocking(pio, pio_sm);
+        uint32_t cmd = pio_sm_get_blocking(pio, pio_read_sm);
         uintptr_t addr = (uintptr_t)emu_ram;
         if (cmd == 0x3) {
             // Read
-            addr += pio_sm_get_blocking(pio, pio_sm) << 8;
-            addr += pio_sm_get_blocking(pio, pio_sm);
+            addr += pio_sm_get_blocking(pio, pio_read_sm) << 8;
+            addr += pio_sm_get_blocking(pio, pio_read_sm);
             //printf("R%04x\n", addr - (uintptr_t)emu_ram);
 
-            // This horrendousness is required due to the interaction
-            // between pull noblock and the dreq for the DMA
-            dma_hw->ch[2].al3_read_addr_trig = addr;
-            dma_hw->ch[1].read_addr = addr+1;
+            dma_hw->ch[1].al3_read_addr_trig = addr;
 
-            while (gpio_get(SPI_CS) == 0) {
-                pio_sm_get(pio, pio_sm);
-            }
+            while (gpio_get(SPI_CS) == 0);
             dma_channel_abort(1);
-            pio_sm_set_enabled(pio, pio_sm, false);
-            pio_sm_clear_fifos(pio, pio_sm);
-            //reset_tx_channel();
-            dma_hw->ch[1].transfer_count = 65536;
-            pio_sm_restart(pio, pio_sm);
-            pio_sm_exec(pio, pio_sm, pio_encode_jmp(pio_offset));
-            pio_sm_set_enabled(pio, pio_sm, true);
+            pio_sm_set_enabled(pio, pio_write_sm, false);
+            pio_sm_clear_fifos(pio, pio_write_sm);
+            pio_sm_restart(pio, pio_write_sm);
+            pio_sm_exec(pio, pio_write_sm, pio_encode_jmp(pio_write_offset));
+            pio_sm_set_enabled(pio, pio_read_sm, false);
+            pio_sm_clear_fifos(pio, pio_read_sm);
+            pio_sm_restart(pio, pio_read_sm);
+            pio_sm_exec(pio, pio_read_sm, pio_encode_jmp(pio_read_offset));
+            pio_sm_set_enabled(pio, pio_write_sm, true);
+            pio_sm_set_enabled(pio, pio_read_sm, true);
         }
         else if (cmd == 0x2) {
             // Write
-            addr += pio_sm_get_blocking(pio, pio_sm) << 8;
-            addr += pio_sm_get_blocking(pio, pio_sm);
+            addr += pio_sm_get_blocking(pio, pio_read_sm) << 8;
+            addr += pio_sm_get_blocking(pio, pio_read_sm);
             dma_hw->ch[0].al2_write_addr_trig = addr;
 
             while (gpio_get(SPI_CS) == 0);
-            while (!pio_sm_is_rx_fifo_empty(pio, pio_sm));
-            pio_sm_set_enabled(pio, pio_sm, false);
+            while (!pio_sm_is_rx_fifo_empty(pio, pio_read_sm));
             dma_channel_abort(0);
-            //reset_rx_channel();
-            dma_hw->ch[0].transfer_count = 65536;
-            pio_sm_exec(pio, pio_sm, pio_encode_jmp(pio_offset));
-            pio_sm_set_enabled(pio, pio_sm, true);
         }
         else {
             // Ignore unknown command
             while (gpio_get(SPI_CS) == 0) {
-                pio_sm_get(pio, pio_sm);
+                pio_sm_get(pio, pio_read_sm);
             }
         }
     }
@@ -167,7 +149,7 @@ int main() {
     uint8_t out_buf[BUF_LEN], in_buf[BUF_LEN];
 
     int speed_incr = 1;
-    for (int speed = 1; speed < 15; speed += speed_incr) {
+    for (int speed = 1; speed < 150; speed += speed_incr) {
         spi_init(spi0, speed * 100 * 1000);
         printf("\nTesting at %d00kHz\n", speed);
         for (int runs = 0; runs < 1000; ++runs) {
@@ -198,6 +180,7 @@ int main() {
             }
 #endif
             
+            //sleep_ms(1000);
             //sleep_us(1);
             if (!ok) {
                 printf("Read from addr %x: FAIL!\n", addr);
