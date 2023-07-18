@@ -23,7 +23,9 @@ int pio_write_offset;
 int rx_channel;
 int tx_channel, tx_channel2;
 
-uint8_t emu_ram[65536];
+//uint8_t emu_ram[65536];
+// TODO: This is a massive hack - sort out the memory map
+uint8_t* emu_ram = (uint8_t*)0x20030000;
 
 void init_sram_pio()
 {
@@ -70,6 +72,21 @@ void __not_in_flash_func(reset_tx_channel)()
         65536, // Number of transfers; in this case each is 1 byte.
         false           // Start immediately.
     );
+
+    c = dma_channel_get_default_config(tx_channel2);
+    channel_config_set_transfer_data_size(&c, DMA_SIZE_32);
+    channel_config_set_read_increment(&c, false);
+    channel_config_set_write_increment(&c, false);
+    channel_config_set_dreq(&c, pio_get_dreq(pio, pio_read_sm, false));
+
+    dma_channel_configure(
+        tx_channel2,          // Channel to be configured
+        &c,            // The configuration we just created
+        &dma_hw->ch[tx_channel].al3_read_addr_trig,           // The initial write address
+        &pio->rxf[pio_read_sm],           // The initial read address
+        1, // Number of transfers; in this case each is 1 byte.
+        false           // Start immediately.
+    );
 }
 
 void __scratch_x("core1_main") core1_main()
@@ -78,20 +95,21 @@ void __scratch_x("core1_main") core1_main()
 
     rx_channel = 0; dma_channel_claim(0);
     tx_channel = 1; dma_channel_claim(1);
+    tx_channel2 = 2; dma_channel_claim(2);
 
     reset_rx_channel();
     reset_tx_channel();
 
     while (true) {
         uint32_t cmd = pio_sm_get_blocking(pio, pio_read_sm);
-        uintptr_t addr = (uintptr_t)emu_ram;
         if (cmd == 0x3) {
             // Read
-            addr += pio_sm_get_blocking(pio, pio_read_sm) << 8;
-            addr += pio_sm_get_blocking(pio, pio_read_sm);
-            //printf("R%04x\n", addr - (uintptr_t)emu_ram);
+            //addr += pio_sm_get_blocking(pio, pio_read_sm) << 8;
+            //addr = pio_sm_get_blocking(pio, pio_read_sm);
+            //printf("R%08x\n", addr);
+            dma_channel_start(2);
 
-            dma_hw->ch[1].al3_read_addr_trig = addr;
+            //dma_hw->ch[1].al3_read_addr_trig = addr;
 
             while (gpio_get(SPI_CS) == 0);
             dma_channel_abort(1);
@@ -103,8 +121,8 @@ void __scratch_x("core1_main") core1_main()
         }
         else if (cmd == 0x2) {
             // Write
-            addr += pio_sm_get_blocking(pio, pio_read_sm) << 8;
-            addr += pio_sm_get_blocking(pio, pio_read_sm);
+            //addr += pio_sm_get_blocking(pio, pio_read_sm) << 8;
+            uint32_t addr = pio_sm_get_blocking(pio, pio_read_sm);
             dma_hw->ch[0].al2_write_addr_trig = addr;
 
             while (gpio_get(SPI_CS) == 0);
@@ -139,7 +157,7 @@ int main() {
     gpio_set_function(19, GPIO_FUNC_SPI);
     gpio_set_function(20, GPIO_FUNC_SPI);
 
-    hw_set_bits(&bus_ctrl_hw->priority, BUSCTRL_BUS_PRIORITY_PROC1_BITS);
+    hw_set_bits(&bus_ctrl_hw->priority, BUSCTRL_BUS_PRIORITY_DMA_R_BITS | BUSCTRL_BUS_PRIORITY_DMA_W_BITS);
     multicore_launch_core1(core1_main);
     sleep_ms(2);
 
@@ -147,7 +165,7 @@ int main() {
     uint8_t out_buf[BUF_LEN], in_buf[BUF_LEN];
 
     int speed_incr = 1;
-    for (int speed = 1; speed < 150; speed += speed_incr) {
+    for (int speed = 10; speed < 600; speed += speed_incr) {
         spi_init(spi0, speed * 100 * 1000);
         printf("\nTesting at %d00kHz\n", speed);
         for (int runs = 0; runs < 1000; ++runs) {
@@ -162,7 +180,7 @@ int main() {
             gpio_put(21, true);
 
 #if 0
-            printf("Read from addr %x: ", addr);
+            printf("Read from addr %04x: ", addr);
             bool ok = true;
             uint8_t* data_buf = &in_buf[3];
             for (int i = 0; i < 8; ++i) {
@@ -179,11 +197,20 @@ int main() {
 #endif
             
             //sleep_ms(1000);
-            //sleep_us(1);
+            sleep_us(1);
             if (!ok) {
-                printf("Read from addr %x: FAIL!\n", addr);
-                speed--;
-                speed_incr = 0;
+                printf("Read from addr %04x: ", addr);
+                uint8_t* data_buf = &in_buf[3];
+                for (int i = 0; i < 8; ++i) {
+                    printf("%02hhx ", data_buf[i]);
+                }
+                printf("FAIL!\nExpected:            ");
+                for (int i = 0; i < 8; ++i) {
+                    printf("%02hhx ", emu_ram[addr + i]);
+                }
+                printf("\n");
+                speed-=2;
+                speed_incr = 1;
                 break;
             }
 
@@ -200,7 +227,7 @@ int main() {
             gpio_put(21, true);
 
 #if 0
-            printf("Write to addr %x: ", addr);
+            printf("Write to addr %04x: ", addr);
             ok = true;
             data_buf = &out_buf[3];
             for (int i = 0; i < 8; ++i) {
@@ -216,7 +243,7 @@ int main() {
             }            
 #endif
 
-            //sleep_us(1);
+            sleep_us(1);
             if (!ok) {
                 printf("Write to addr %x: FAIL!\n", addr);
                 speed--;
