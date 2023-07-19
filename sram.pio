@@ -60,7 +60,6 @@ addr_zero:
 .wrap_target
     out pins, 1
     wait 0 pin 1
-resume:
     wait 1 pin 1
 .wrap
 PUBLIC addr_two:
@@ -68,19 +67,13 @@ PUBLIC addr_two:
     wait 1 pin 1
     jmp pin, addr_three
     out null, 16
-    out pins, 1
-    wait 0 pin 1
-    jmp resume
+    jmp addr_zero
 addr_one:
     out null, 8
-    out pins, 1
-    wait 0 pin 1
-    jmp resume
+    jmp addr_zero
 addr_three:
     out null, 24
-    out pins, 1
-    wait 0 pin 1
-    jmp resume
+    jmp addr_zero
 PUBLIC fast_read:
     set x, 8
 fast_read_loop:
