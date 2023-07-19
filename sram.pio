@@ -51,17 +51,19 @@ cmd_addr_loop:
     wait 0 pin 1
     wait 1 pin 1
     jmp x--, cmd_addr_loop
+PUBLIC addr_loop_end:
     jmp pin, addr_two
     wait 0 pin 1
     wait 1 pin 1
     jmp pin, addr_one
+addr_zero:
 .wrap_target
     out pins, 1
     wait 0 pin 1
 resume:
     wait 1 pin 1
 .wrap
-addr_two:
+PUBLIC addr_two:
     wait 0 pin 1
     wait 1 pin 1
     jmp pin, addr_three
@@ -79,6 +81,14 @@ addr_three:
     out pins, 1
     wait 0 pin 1
     jmp resume
+PUBLIC fast_read:
+    set x, 8
+fast_read_loop:
+    wait 0 pin 1
+    wait 1 pin 1
+    jmp x--, fast_read_loop
+    jmp addr_zero
+
 
 ; Crazy plan:
 ; - Switch to 32-bit writes (byte swapped?) on the write side

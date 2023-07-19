@@ -21,8 +21,8 @@ extern "C" {
 #define SPI_CS 4
 #define SPI_MISO 5
 
-PIO pio_read = pio0;
-PIO pio_write = pio1;
+PIO pio_read = pio1;
+PIO pio_write = pio0;
 int pio_read_sm;
 int pio_read_offset;
 int pio_write_sm;
@@ -39,8 +39,8 @@ void init_sram_pio()
 {
     pio_read_offset = pio_add_program(pio_read, &sram_read_program);
     pio_read_sm = pio_claim_unused_sm(pio_read, true);
-    pio_write_offset = pio_add_program(pio_write, &sram_write_program);
-    pio_write_sm = pio_claim_unused_sm(pio_write, true);
+    pio_write_offset = 0; pio_add_program_at_offset(pio_write, &sram_write_program, 0);
+    pio_write_sm = 0; pio_sm_claim(pio_write, 0);
 
     sram_read_program_init(pio_read, pio_read_sm, pio_read_offset, SPI_MOSI);
     sram_write_program_init(pio_write, pio_write_sm, pio_write_offset, SPI_MOSI, SPI_MISO);
@@ -123,6 +123,30 @@ void __scratch_x("core1_main") core1_main()
             while (gpio_get(SPI_CS) == 0);
             dma_channel_abort(1);
         }
+        else if (cmd == 0xB) {
+            // Fast read
+            // Need to patch the write program to do extra delay cycles
+            pio_write->instr_mem[sram_write_offset_addr_loop_end] = pio_encode_jmp(sram_write_offset_fast_read);
+
+            // And change the write size to 8
+            hw_clear_bits(&dma_hw->ch[1].al1_ctrl, DMA_CH0_CTRL_TRIG_DATA_SIZE_BITS);
+            hw_set_bits(&pio_write->sm[0].shiftctrl, 8 << PIO_SM0_SHIFTCTRL_PULL_THRESH_LSB);
+
+            // Standard address handling
+            uint32_t addr = pio_sm_get_blocking(pio_read, pio_read_sm);
+            addr |= pio_sm_get_blocking(pio_read, pio_read_sm);
+            dma_hw->ch[1].al3_read_addr_trig = addr;
+
+            while (gpio_get(SPI_CS) == 0);
+            dma_channel_abort(1);
+
+            // Unpatch the write program
+            pio_write->instr_mem[sram_write_offset_addr_loop_end] = pio_encode_jmp_pin(sram_write_offset_addr_two);
+
+            // And change the write size back to 32
+            hw_set_bits(&dma_hw->ch[1].al1_ctrl, 2 << DMA_CH10_CTRL_TRIG_DATA_SIZE_LSB);
+            hw_clear_bits(&pio_write->sm[0].shiftctrl, PIO_SM0_SHIFTCTRL_PULL_THRESH_BITS);
+        }
         else if (cmd == 0x2) {
             // Write
             //addr += pio_sm_get_blocking(pio, pio_read_sm) << 8;
@@ -177,7 +201,7 @@ int main() {
     multicore_launch_core1(core1_main);
     sleep_ms(2);
 
-    constexpr int BUF_LEN = 8 + 3;
+    constexpr int BUF_LEN = 8 + 4;
     uint8_t out_buf[BUF_LEN], in_buf[BUF_LEN];
 
     int logic_sm = pio_claim_unused_sm(pio1, true);
@@ -196,7 +220,7 @@ int main() {
             out_buf[0] = 0x3;
             out_buf[1] = addr >> 8;
             out_buf[2] = addr & 0xff;
-            memset(&out_buf[3], 0, 8);
+            memset(&out_buf[3], 0, 9);
             gpio_put(21, false);
             pio_spi_write8_read8_blocking(&spi, out_buf, in_buf, BUF_LEN);
             gpio_put(21, true);
@@ -213,7 +237,7 @@ int main() {
 #else
             bool ok = true;
             uint8_t* data_buf = &in_buf[3];
-            for (int i = 0; i < 8; ++i) {
+            for (int i = 0; i < 9; ++i) {
                 if (data_buf[i] != emu_ram[addr + i]) ok = false;
             }
 #endif
@@ -227,6 +251,50 @@ int main() {
                     printf("%02hhx ", data_buf[i]);
                 }
                 printf("FAIL!\nExpected:            ");
+                for (int i = 0; i < 8; ++i) {
+                    printf("%02hhx ", emu_ram[addr + i]);
+                }
+                printf("\n");
+                divider += 2;
+                speed_incr = 1;
+                break;
+            }
+
+            // Fast read 8 bytes from addr
+            out_buf[0] = 0xB;
+            out_buf[1] = addr >> 8;
+            out_buf[2] = addr & 0xff;
+            memset(&out_buf[3], 0, 9);
+            gpio_put(21, false);
+            pio_spi_write8_read8_blocking(&spi, out_buf, in_buf, BUF_LEN);
+            gpio_put(21, true);
+
+#if 0
+            printf("Fast read from addr %04x: ", addr);
+            ok = true;
+            data_buf = &in_buf[4];
+            for (int i = 0; i < 8; ++i) {
+                printf("%02hhx ", data_buf[i]);
+                if (data_buf[i] != emu_ram[addr + i]) ok = false;
+            }
+            printf("%s", ok ? "OK\n" : "FAIL!\n");
+#else
+            ok = true;
+            data_buf = &in_buf[4];
+            for (int i = 0; i < 8; ++i) {
+                if (data_buf[i] != emu_ram[addr + i]) ok = false;
+            }
+#endif
+            //print_capture_buf(logic_buf, 18, 4, 128*8);
+            //sleep_ms(1000);
+            //sleep_us(1);
+            if (!ok) {
+                printf("Fast read from addr %04x: ", addr);
+                uint8_t* data_buf = &in_buf[3];
+                for (int i = 0; i < 8; ++i) {
+                    printf("%02hhx ", data_buf[i]);
+                }
+                printf("FAIL!\nExpected:                 ");
                 for (int i = 0; i < 8; ++i) {
                     printf("%02hhx ", emu_ram[addr + i]);
                 }
@@ -260,7 +328,7 @@ int main() {
 #else
             ok = true;
             data_buf = &out_buf[3];
-            for (int i = 0; i < 8; ++i) {
+            for (int i = 0; i < 9; ++i) {
                 if (data_buf[i] != emu_ram[addr + i]) ok = false;
             }            
 #endif
@@ -272,12 +340,12 @@ int main() {
                 for (int i = 0; i < 8; ++i) {
                     printf("%02hhx ", emu_ram[addr + i]);
                 }
-                printf("FAIL!\nExpected:            ");
+                printf("FAIL!\nExpected:             ");
                 for (int i = 0; i < 8; ++i) {
                     printf("%02hhx ", data_buf[i]);
                 }
                 printf("\n");
-                divider++;
+                //divider++;
                 speed_incr = 0;
                 break;
             }
