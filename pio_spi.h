@@ -21,4 +21,6 @@ void pio_spi_read8_blocking(const pio_spi_inst_t *spi, uint8_t *dst, size_t len)
 
 void pio_spi_write8_read8_blocking(const pio_spi_inst_t *spi, uint8_t *src, uint8_t *dst, size_t len);
 
+void pio_spi_setup(const pio_spi_inst_t *spi);
+
 #endif

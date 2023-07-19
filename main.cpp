@@ -16,10 +16,10 @@ extern "C" {
 
 #include "sram.pio.h"
 
-#define SPI_MOSI 2
-#define SPI_SCK 3  // Must be MOSI + 1
-#define SPI_CS 4
-#define SPI_MISO 5
+#define SPI_MOSI 18
+#define SPI_SCK 19  // Must be MOSI + 1
+#define SPI_CS 20
+#define SPI_MISO 21
 
 PIO pio_read = pio1;
 PIO pio_write = pio0;
@@ -188,12 +188,12 @@ int main() {
     pio_spi_inst_t spi = {
         .pio = pio1,
         .sm = pio_claim_unused_sm(pio1, true),
-        .cs_pin = 21
+        .cs_pin = SPI_CS
     };
 
-    gpio_init(21);
-    gpio_put(21, true);
-    gpio_set_dir(21, true);
+    gpio_init(SPI_CS);
+    gpio_put(SPI_CS, true);
+    gpio_set_dir(SPI_CS, true);
 
     uint pio_spi_offset = pio_add_program(spi.pio, &spi_cpha0_program);
 
@@ -201,29 +201,33 @@ int main() {
     multicore_launch_core1(core1_main);
     sleep_ms(2);
 
+    pio_spi_setup(&spi);
+
     constexpr int BUF_LEN = 8 + 4;
     uint8_t out_buf[BUF_LEN], in_buf[BUF_LEN];
 
     int logic_sm = pio_claim_unused_sm(pio1, true);
-    //logic_analyser_init(pio1, logic_sm, 18, 4, 1);    
+    logic_analyser_init(pio1, logic_sm, SPI_MOSI, 4, 1);    
 
     int speed_incr = 1;
     for (int divider = 12; divider > 1; divider -= speed_incr) 
     {
-        pio_spi_init(spi.pio, spi.sm, pio_spi_offset, 8, divider, false, false, 18, 19, 20);
+        if (divider <= 4) divider = 5;
+
+        pio_spi_init(spi.pio, spi.sm, pio_spi_offset, 8, divider, false, false, SPI_SCK, SPI_MOSI, SPI_MISO);
         printf("\nTesting at %.03fMHz\n", 125.f/(2 * divider));
-        //logic_analyser_arm(pio1, logic_sm, 11, logic_buf, 128, 21, false);
-        for (int runs = 0; runs < 1000; ++runs) {
+        for (int runs = 0; runs < 2000; ++runs) {
             int addr = rand() % (65536 - BUF_LEN);
 
             // Read 8 bytes from addr
+            logic_analyser_arm(pio1, logic_sm, 11, logic_buf, 128, SPI_CS, false);
             out_buf[0] = 0x3;
             out_buf[1] = addr >> 8;
             out_buf[2] = addr & 0xff;
             memset(&out_buf[3], 0, 9);
-            gpio_put(21, false);
+            gpio_put(SPI_CS, false);
             pio_spi_write8_read8_blocking(&spi, out_buf, in_buf, BUF_LEN);
-            gpio_put(21, true);
+            gpio_put(SPI_CS, true);
 
 #if 0
             printf("Read from addr %04x: ", addr);
@@ -255,19 +259,21 @@ int main() {
                     printf("%02hhx ", emu_ram[addr + i]);
                 }
                 printf("\n");
+                print_capture_buf(logic_buf, 18, 4, 128*8);
                 divider += 2;
                 speed_incr = 1;
                 break;
             }
 
+#if 1
             // Fast read 8 bytes from addr
             out_buf[0] = 0xB;
             out_buf[1] = addr >> 8;
             out_buf[2] = addr & 0xff;
             memset(&out_buf[3], 0, 9);
-            gpio_put(21, false);
+            gpio_put(SPI_CS, false);
             pio_spi_write8_read8_blocking(&spi, out_buf, in_buf, BUF_LEN);
-            gpio_put(21, true);
+            gpio_put(SPI_CS, true);
 
 #if 0
             printf("Fast read from addr %04x: ", addr);
@@ -303,6 +309,7 @@ int main() {
                 speed_incr = 1;
                 break;
             }
+#endif
 
             // Write 8 bytes to addr
             addr = rand() % (65536 - BUF_LEN);
@@ -312,9 +319,9 @@ int main() {
             for (int i = 0; i < 8; ++i) {
                 out_buf[i+3] = rand();
             }
-            gpio_put(21, false);
+            gpio_put(SPI_CS, false);
             pio_spi_write8_read8_blocking(&spi, out_buf, in_buf, BUF_LEN);
-            gpio_put(21, true);
+            gpio_put(SPI_CS, true);
 
 #if 0
             printf("Write to addr %04x: ", addr);

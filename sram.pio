@@ -98,9 +98,9 @@ fast_read_loop:
 
 % c-sdk {
 void sram_read_program_init(PIO pio, uint sm, uint offset, uint mosi) {
-    pio_gpio_init(pio, mosi);
-    pio_gpio_init(pio, mosi + 1);
-    pio_gpio_init(pio, mosi + 2);
+    //pio_gpio_init(pio, mosi);
+    //pio_gpio_init(pio, mosi + 1);
+    //pio_gpio_init(pio, mosi + 2);
     pio_sm_set_consecutive_pindirs(pio, sm, mosi, 3, false);
 
     pio_sm_config c = sram_read_program_get_default_config(offset);
