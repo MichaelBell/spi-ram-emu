@@ -28,10 +28,13 @@ read_addr_loop:
     in pins, 1
     jmp x--, read_addr_loop
     in null, 2
+    set x, 1
+read_addr_low_loop:
     wait 0 pin 1
     wait 1 pin 1
-    wait 0 pin 1
-    wait 1 pin 1
+    in pins, 1
+    jmp x--, read_addr_low_loop
+    push
 .wrap_target
     set x, 7
 read_data_loop:
@@ -43,16 +46,40 @@ read_data_loop:
 
 .program sram_write
     wait 0 pin 2
-    set x, 23
+    set x, 22
 cmd_addr_loop:
     wait 0 pin 1
     wait 1 pin 1
     jmp x--, cmd_addr_loop
+    jmp pin, addr_two
+    wait 0 pin 1
+    wait 1 pin 1
+    jmp pin, addr_one
 .wrap_target
     out pins, 1
     wait 0 pin 1
+resume:
     wait 1 pin 1
-    
+.wrap
+addr_two:
+    wait 0 pin 1
+    wait 1 pin 1
+    jmp pin, addr_three
+    out null, 16
+    out pins, 1
+    wait 0 pin 1
+    jmp resume
+addr_one:
+    out null, 8
+    out pins, 1
+    wait 0 pin 1
+    jmp resume
+addr_three:
+    out null, 24
+    out pins, 1
+    wait 0 pin 1
+    jmp resume
+
 ; Crazy plan:
 ; - Switch to 32-bit writes (byte swapped?) on the write side
 ; - On read side send first 30 bits of address (right justified), and then 2 bits end of address
@@ -87,6 +114,7 @@ void sram_write_program_init(PIO pio, uint sm, uint offset, uint mosi, uint miso
     sm_config_set_out_pins(&c, miso, 1);
     sm_config_set_out_shift(&c, false, true, 32);
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+    sm_config_set_jmp_pin(&c, mosi);
 
     pio_sm_init(pio, sm, offset, &c);
     pio_sm_set_enabled(pio, sm, true);

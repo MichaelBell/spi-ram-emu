@@ -21,7 +21,8 @@ extern "C" {
 #define SPI_CS 4
 #define SPI_MISO 5
 
-PIO pio = pio0;
+PIO pio_read = pio0;
+PIO pio_write = pio1;
 int pio_read_sm;
 int pio_read_offset;
 int pio_write_sm;
@@ -36,13 +37,13 @@ uint8_t* emu_ram = (uint8_t*)0x20030000;
 
 void init_sram_pio()
 {
-    pio_read_offset = pio_add_program(pio, &sram_read_program);
-    pio_read_sm = pio_claim_unused_sm(pio, true);
-    pio_write_offset = pio_add_program(pio, &sram_write_program);
-    pio_write_sm = pio_claim_unused_sm(pio, true);
+    pio_read_offset = pio_add_program(pio_read, &sram_read_program);
+    pio_read_sm = pio_claim_unused_sm(pio_read, true);
+    pio_write_offset = pio_add_program(pio_write, &sram_write_program);
+    pio_write_sm = pio_claim_unused_sm(pio_write, true);
 
-    sram_read_program_init(pio, pio_read_sm, pio_read_offset, SPI_MOSI);
-    sram_write_program_init(pio, pio_write_sm, pio_write_offset, SPI_MOSI, SPI_MISO);
+    sram_read_program_init(pio_read, pio_read_sm, pio_read_offset, SPI_MOSI);
+    sram_write_program_init(pio_write, pio_write_sm, pio_write_offset, SPI_MOSI, SPI_MISO);
 }
 
 void __not_in_flash_func(reset_rx_channel)()
@@ -51,13 +52,13 @@ void __not_in_flash_func(reset_rx_channel)()
     channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
     channel_config_set_read_increment(&c, false);
     channel_config_set_write_increment(&c, true);
-    channel_config_set_dreq(&c, pio_get_dreq(pio, pio_read_sm, false));
+    channel_config_set_dreq(&c, pio_get_dreq(pio_read, pio_read_sm, false));
 
     dma_channel_configure(
         rx_channel,          // Channel to be configured
         &c,            // The configuration we just created
         NULL,           // The initial write address
-        &pio->rxf[pio_read_sm],           // The initial read address
+        &pio_read->rxf[pio_read_sm],           // The initial read address
         65536, // Number of transfers; in this case each is 1 byte.
         false           // Start immediately.
     );
@@ -70,12 +71,12 @@ void __not_in_flash_func(reset_tx_channel)()
     channel_config_set_read_increment(&c, true);
     channel_config_set_write_increment(&c, false);
     channel_config_set_bswap(&c, true);
-    channel_config_set_dreq(&c, pio_get_dreq(pio, pio_write_sm, true));
+    channel_config_set_dreq(&c, pio_get_dreq(pio_write, pio_write_sm, true));
 
     dma_channel_configure(
         tx_channel,          // Channel to be configured
         &c,            // The configuration we just created
-        &pio->txf[pio_write_sm],           // The initial write address
+        &pio_write->txf[pio_write_sm],           // The initial write address
         NULL,           // The initial read address
         65536, // Number of transfers; in this case each is 1 byte.
         false           // Start immediately.
@@ -85,13 +86,13 @@ void __not_in_flash_func(reset_tx_channel)()
     channel_config_set_transfer_data_size(&c, DMA_SIZE_32);
     channel_config_set_read_increment(&c, false);
     channel_config_set_write_increment(&c, false);
-    channel_config_set_dreq(&c, pio_get_dreq(pio, pio_read_sm, false));
+    channel_config_set_dreq(&c, pio_get_dreq(pio_read, pio_read_sm, false));
 
     dma_channel_configure(
         tx_channel2,          // Channel to be configured
         &c,            // The configuration we just created
         &dma_hw->ch[tx_channel].al3_read_addr_trig,           // The initial write address
-        &pio->rxf[pio_read_sm],           // The initial read address
+        &pio_read->rxf[pio_read_sm],           // The initial read address
         1, // Number of transfers; in this case each is 1 byte.
         false           // Start immediately.
     );
@@ -109,7 +110,7 @@ void __scratch_x("core1_main") core1_main()
     reset_tx_channel();
 
     while (true) {
-        uint32_t cmd = pio_sm_get_blocking(pio, pio_read_sm);
+        uint32_t cmd = pio_sm_get_blocking(pio_read, pio_read_sm);
         if (cmd == 0x3) {
             // Read
             //addr += pio_sm_get_blocking(pio, pio_read_sm) << 8;
@@ -125,27 +126,28 @@ void __scratch_x("core1_main") core1_main()
         else if (cmd == 0x2) {
             // Write
             //addr += pio_sm_get_blocking(pio, pio_read_sm) << 8;
-            uint32_t addr = pio_sm_get_blocking(pio, pio_read_sm);
+            uint32_t addr = pio_sm_get_blocking(pio_read, pio_read_sm);
+            addr |= pio_sm_get_blocking(pio_read, pio_read_sm);
             dma_hw->ch[0].al2_write_addr_trig = addr;
 
             while (gpio_get(SPI_CS) == 0);
-            while (!pio_sm_is_rx_fifo_empty(pio, pio_read_sm));
+            while (!pio_sm_is_rx_fifo_empty(pio_read, pio_read_sm));
             dma_channel_abort(0);
         }
         else {
             // Ignore unknown command
             while (gpio_get(SPI_CS) == 0);
         }
-        pio_sm_set_enabled(pio, pio_write_sm, false);
-        pio_sm_clear_fifos(pio, pio_write_sm);
-        pio_sm_restart(pio, pio_write_sm);
-        pio_sm_exec(pio, pio_write_sm, pio_encode_jmp(pio_write_offset));
-        pio_sm_set_enabled(pio, pio_write_sm, true);
-        pio_sm_set_enabled(pio, pio_read_sm, false);
-        pio_sm_clear_fifos(pio, pio_read_sm);
-        pio_sm_restart(pio, pio_read_sm);
-        pio_sm_exec(pio, pio_read_sm, pio_encode_jmp(pio_read_offset));
-        pio_sm_set_enabled(pio, pio_read_sm, true);            
+        pio_sm_set_enabled(pio_write, pio_write_sm, false);
+        pio_sm_clear_fifos(pio_write, pio_write_sm);
+        pio_sm_restart(pio_write, pio_write_sm);
+        pio_sm_exec(pio_write, pio_write_sm, pio_encode_jmp(pio_write_offset));
+        pio_sm_set_enabled(pio_write, pio_write_sm, true);
+        pio_sm_set_enabled(pio_read, pio_read_sm, false);
+        pio_sm_clear_fifos(pio_read, pio_read_sm);
+        pio_sm_restart(pio_read, pio_read_sm);
+        pio_sm_exec(pio_read, pio_read_sm, pio_encode_jmp(pio_read_offset));
+        pio_sm_set_enabled(pio_read, pio_read_sm, true);            
     }
 }
 
@@ -188,7 +190,7 @@ int main() {
         printf("\nTesting at %.03fMHz\n", 125.f/(2 * divider));
         //logic_analyser_arm(pio1, logic_sm, 11, logic_buf, 128, 21, false);
         for (int runs = 0; runs < 1000; ++runs) {
-            int addr = (rand() % (65536 - BUF_LEN)) & ~3;
+            int addr = rand() % (65536 - BUF_LEN);
 
             // Read 8 bytes from addr
             out_buf[0] = 0x3;
@@ -235,7 +237,7 @@ int main() {
             }
 
             // Write 8 bytes to addr
-            addr = (rand() % (65536 - BUF_LEN)) & ~3;
+            addr = rand() % (65536 - BUF_LEN);
             out_buf[0] = 0x2;
             out_buf[1] = addr >> 8;
             out_buf[2] = addr & 0xff;
