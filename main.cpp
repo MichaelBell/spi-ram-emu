@@ -3,13 +3,14 @@
 #include <stdlib.h>
 
 #include <hardware/pio.h>
-#include <hardware/spi.h>
 #include <hardware/dma.h>
 #include <pico/multicore.h>
 #include "hardware/structs/bus_ctrl.h"
 
 extern "C" {
     #include "logic.h"
+
+    #include "pio_spi.h"
 }
 
 #include "sram.pio.h"
@@ -156,13 +157,17 @@ int main() {
 
     sleep_ms(5000);
 
+    pio_spi_inst_t spi = {
+        .pio = pio1,
+        .sm = pio_claim_unused_sm(pio1, true),
+        .cs_pin = 21
+    };
+
     gpio_init(21);
     gpio_put(21, true);
     gpio_set_dir(21, true);
 
-    gpio_set_function(18, GPIO_FUNC_SPI);
-    gpio_set_function(19, GPIO_FUNC_SPI);
-    gpio_set_function(20, GPIO_FUNC_SPI);
+    uint pio_spi_offset = pio_add_program(spi.pio, &spi_cpha0_program);
 
     hw_set_bits(&bus_ctrl_hw->priority, BUSCTRL_BUS_PRIORITY_DMA_R_BITS | BUSCTRL_BUS_PRIORITY_DMA_W_BITS);
     multicore_launch_core1(core1_main);
@@ -171,14 +176,15 @@ int main() {
     constexpr int BUF_LEN = 8 + 3;
     uint8_t out_buf[BUF_LEN], in_buf[BUF_LEN];
 
-    logic_analyser_init(pio1, 0, 18, 4, 2);    
+    int logic_sm = pio_claim_unused_sm(pio1, true);
+    //logic_analyser_init(pio1, logic_sm, 18, 4, 1);    
 
     int speed_incr = 1;
-    for (int speed = 1; speed < 600; speed += speed_incr) 
+    for (int divider = 12; divider > 1; divider -= speed_incr) 
     {
-        spi_init(spi0, speed * 100 * 1000);
-        printf("\nTesting at %d00kHz\n", speed);
-        //logic_analyser_arm(pio1, 0, 11, logic_buf, 128, 21, false);
+        pio_spi_init(spi.pio, spi.sm, pio_spi_offset, 8, divider, false, false, 18, 19, 20);
+        printf("\nTesting at %.03fMHz\n", 125.f/(2 * divider));
+        //logic_analyser_arm(pio1, logic_sm, 11, logic_buf, 128, 21, false);
         for (int runs = 0; runs < 1000; ++runs) {
             int addr = rand() % (65536 - BUF_LEN);
 
@@ -187,7 +193,7 @@ int main() {
             out_buf[1] = addr >> 8;
             out_buf[2] = addr & 0xff;
             gpio_put(21, false);
-            spi_write_read_blocking(spi0, out_buf, in_buf, BUF_LEN);
+            pio_spi_write8_read8_blocking(&spi, out_buf, in_buf, BUF_LEN);
             gpio_put(21, true);
 
 #if 0
@@ -220,7 +226,7 @@ int main() {
                     printf("%02hhx ", emu_ram[addr + i]);
                 }
                 printf("\n");
-                speed-=2;
+                divider += 2;
                 speed_incr = 1;
                 break;
             }
@@ -234,7 +240,7 @@ int main() {
                 out_buf[i+3] = rand();
             }
             gpio_put(21, false);
-            spi_write_read_blocking(spi0, out_buf, in_buf, BUF_LEN);
+            pio_spi_write8_read8_blocking(&spi, out_buf, in_buf, BUF_LEN);
             gpio_put(21, true);
 
 #if 0
@@ -257,11 +263,11 @@ int main() {
             //sleep_us(1);
             if (!ok) {
                 printf("Write to addr %x: FAIL!\n", addr);
-                speed--;
+                divider--;
                 speed_incr = 0;
                 break;
             }
         }
-        if (speed < 1) speed = 1;
+        if (divider > 50) divider = 50;
     }
 }

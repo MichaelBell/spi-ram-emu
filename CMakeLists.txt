@@ -20,6 +20,7 @@ pico_sdk_init()
 add_executable(${NAME}
     main.cpp # <-- Add source files here!
     logic.c
+    pio_spi.c
 )
 
 # Include required libraries
@@ -34,12 +35,12 @@ add_executable(${NAME}
 target_link_libraries(${NAME}
     pico_stdlib
     pico_multicore
-    hardware_spi
     hardware_dma
     hardware_pio
 )
 
 pico_generate_pio_header(${NAME} ${CMAKE_CURRENT_LIST_DIR}/sram.pio)
+pico_generate_pio_header(${NAME} ${CMAKE_CURRENT_LIST_DIR}/spi.pio)
 
 # create map/bin/hex file etc.
 pico_add_extra_outputs(${NAME})
