@@ -21,12 +21,17 @@ read_cmd_loop:
     jmp x--, read_cmd_loop
     push
     in y, 16
-    set x, 15
+    set x, 13
 read_addr_loop:
     wait 0 pin 1
     wait 1 pin 1
     in pins, 1
     jmp x--, read_addr_loop
+    in null, 2
+    wait 0 pin 1
+    wait 1 pin 1
+    wait 0 pin 1
+    wait 1 pin 1
 .wrap_target
     set x, 7
 read_data_loop:
@@ -37,11 +42,23 @@ read_data_loop:
     push
 
 .program sram_write
-;    wait 0 pin 1
+    wait 0 pin 2
+    set x, 23
+cmd_addr_loop:
+    wait 0 pin 1
+    wait 1 pin 1
+    jmp x--, cmd_addr_loop
+.wrap_target
     out pins, 1
     wait 0 pin 1
     wait 1 pin 1
     
+; Crazy plan:
+; - Switch to 32-bit writes (byte swapped?) on the write side
+; - On read side send first 30 bits of address (right justified), and then 2 bits end of address
+; - Write side program also counts the cycles from the CS going low and then starts branching on the last 2 bits
+; - The branch determines how many bits (24, 16, 8 or none) it throws away before outputting to pins
+
 % c-sdk {
 void sram_read_program_init(PIO pio, uint sm, uint offset, uint mosi) {
     pio_gpio_init(pio, mosi);
@@ -68,7 +85,7 @@ void sram_write_program_init(PIO pio, uint sm, uint offset, uint mosi, uint miso
     pio_sm_config c = sram_write_program_get_default_config(offset);
     sm_config_set_in_pins(&c, mosi);
     sm_config_set_out_pins(&c, miso, 1);
-    sm_config_set_out_shift(&c, false, true, 8);
+    sm_config_set_out_shift(&c, false, true, 32);
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
 
     pio_sm_init(pio, sm, offset, &c);

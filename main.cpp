@@ -1,6 +1,7 @@
 #include <pico/stdlib.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <hardware/pio.h>
 #include <hardware/dma.h>
@@ -65,9 +66,10 @@ void __not_in_flash_func(reset_rx_channel)()
 void __not_in_flash_func(reset_tx_channel)()
 {
     dma_channel_config c = dma_channel_get_default_config(tx_channel);
-    channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
+    channel_config_set_transfer_data_size(&c, DMA_SIZE_32);
     channel_config_set_read_increment(&c, true);
     channel_config_set_write_increment(&c, false);
+    channel_config_set_bswap(&c, true);
     channel_config_set_dreq(&c, pio_get_dreq(pio, pio_write_sm, true));
 
     dma_channel_configure(
@@ -119,11 +121,6 @@ void __scratch_x("core1_main") core1_main()
 
             while (gpio_get(SPI_CS) == 0);
             dma_channel_abort(1);
-            pio_sm_set_enabled(pio, pio_write_sm, false);
-            pio_sm_clear_fifos(pio, pio_write_sm);
-            pio_sm_restart(pio, pio_write_sm);
-            pio_sm_exec(pio, pio_write_sm, pio_encode_jmp(pio_write_offset));
-            pio_sm_set_enabled(pio, pio_write_sm, true);
         }
         else if (cmd == 0x2) {
             // Write
@@ -139,6 +136,11 @@ void __scratch_x("core1_main") core1_main()
             // Ignore unknown command
             while (gpio_get(SPI_CS) == 0);
         }
+        pio_sm_set_enabled(pio, pio_write_sm, false);
+        pio_sm_clear_fifos(pio, pio_write_sm);
+        pio_sm_restart(pio, pio_write_sm);
+        pio_sm_exec(pio, pio_write_sm, pio_encode_jmp(pio_write_offset));
+        pio_sm_set_enabled(pio, pio_write_sm, true);
         pio_sm_set_enabled(pio, pio_read_sm, false);
         pio_sm_clear_fifos(pio, pio_read_sm);
         pio_sm_restart(pio, pio_read_sm);
@@ -186,12 +188,13 @@ int main() {
         printf("\nTesting at %.03fMHz\n", 125.f/(2 * divider));
         //logic_analyser_arm(pio1, logic_sm, 11, logic_buf, 128, 21, false);
         for (int runs = 0; runs < 1000; ++runs) {
-            int addr = rand() % (65536 - BUF_LEN);
+            int addr = (rand() % (65536 - BUF_LEN)) & ~3;
 
             // Read 8 bytes from addr
             out_buf[0] = 0x3;
             out_buf[1] = addr >> 8;
             out_buf[2] = addr & 0xff;
+            memset(&out_buf[3], 0, 8);
             gpio_put(21, false);
             pio_spi_write8_read8_blocking(&spi, out_buf, in_buf, BUF_LEN);
             gpio_put(21, true);
@@ -232,7 +235,7 @@ int main() {
             }
 
             // Write 8 bytes to addr
-            addr = rand() % (65536 - BUF_LEN);
+            addr = (rand() % (65536 - BUF_LEN)) & ~3;
             out_buf[0] = 0x2;
             out_buf[1] = addr >> 8;
             out_buf[2] = addr & 0xff;
@@ -262,8 +265,17 @@ int main() {
 
             //sleep_us(1);
             if (!ok) {
-                printf("Write to addr %x: FAIL!\n", addr);
-                divider--;
+                printf("Write to addr %x: ", addr);
+                uint8_t* data_buf = &out_buf[3];
+                for (int i = 0; i < 8; ++i) {
+                    printf("%02hhx ", emu_ram[addr + i]);
+                }
+                printf("FAIL!\nExpected:            ");
+                for (int i = 0; i < 8; ++i) {
+                    printf("%02hhx ", data_buf[i]);
+                }
+                printf("\n");
+                divider++;
                 speed_incr = 0;
                 break;
             }
