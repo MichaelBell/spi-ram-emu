@@ -44,6 +44,12 @@ read_data_loop:
     jmp x--, read_data_loop
     push
 
+; Crazy plan for unaligned read handling:
+; - Data is DMA'd 32-bits at a time
+; - On read side send first 30 bits of address (right justified), and then 2 bits end of address
+; - Write side program also counts the cycles from the CS going low and then starts branching on the last 2 bits
+; - The branch determines how many bits (24, 16, 8 or none) it throws away before outputting to pins
+
 .program sram_write
     wait 0 pin 2
     set x, 22
@@ -56,38 +62,31 @@ PUBLIC addr_loop_end:
     wait 0 pin 1
     wait 1 pin 1
     jmp pin, addr_one
-addr_zero:
+write_loop:
 .wrap_target
     out pins, 1
     wait 0 pin 1
     wait 1 pin 1
-.wrap
+    jmp write_loop
 PUBLIC addr_two:
     wait 0 pin 1
     wait 1 pin 1
     jmp pin, addr_three
     out null, 16
-    jmp addr_zero
+    jmp write_loop
 addr_one:
     out null, 8
-    jmp addr_zero
+    jmp write_loop
 addr_three:
     out null, 24
-    jmp addr_zero
+    jmp write_loop
 PUBLIC fast_read:
     set x, 8
 fast_read_loop:
     wait 0 pin 1
     wait 1 pin 1
     jmp x--, fast_read_loop
-    jmp addr_zero
-
-
-; Crazy plan:
-; - Switch to 32-bit writes (byte swapped?) on the write side
-; - On read side send first 30 bits of address (right justified), and then 2 bits end of address
-; - Write side program also counts the cycles from the CS going low and then starts branching on the last 2 bits
-; - The branch determines how many bits (24, 16, 8 or none) it throws away before outputting to pins
+.wrap
 
 % c-sdk {
 void sram_read_program_init(PIO pio, uint sm, uint offset, uint mosi) {

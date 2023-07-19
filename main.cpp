@@ -207,20 +207,20 @@ int main() {
     uint8_t out_buf[BUF_LEN], in_buf[BUF_LEN];
 
     int logic_sm = pio_claim_unused_sm(pio1, true);
-    logic_analyser_init(pio1, logic_sm, SPI_MOSI, 4, 1);    
+    //logic_analyser_init(pio1, logic_sm, SPI_MOSI, 4, 1);    
 
     int speed_incr = 1;
     for (int divider = 12; divider > 1; divider -= speed_incr) 
     {
-        if (divider <= 4) divider = 5;
+        if (divider <= 3) divider = 4;
 
         pio_spi_init(spi.pio, spi.sm, pio_spi_offset, 8, divider, false, false, SPI_SCK, SPI_MOSI, SPI_MISO);
         printf("\nTesting at %.03fMHz\n", 125.f/(2 * divider));
         for (int runs = 0; runs < 2000; ++runs) {
-            int addr = rand() % (65536 - BUF_LEN);
+            int addr = (rand() % (65536 - BUF_LEN)) & ~3;
 
             // Read 8 bytes from addr
-            logic_analyser_arm(pio1, logic_sm, 11, logic_buf, 128, SPI_CS, false);
+            //logic_analyser_arm(pio1, logic_sm, 11, logic_buf, 128, SPI_CS, false);
             out_buf[0] = 0x3;
             out_buf[1] = addr >> 8;
             out_buf[2] = addr & 0xff;
@@ -259,7 +259,7 @@ int main() {
                     printf("%02hhx ", emu_ram[addr + i]);
                 }
                 printf("\n");
-                print_capture_buf(logic_buf, 18, 4, 128*8);
+                //print_capture_buf(logic_buf, 18, 4, 128*8);
                 divider += 2;
                 speed_incr = 1;
                 break;
@@ -267,6 +267,7 @@ int main() {
 
 #if 1
             // Fast read 8 bytes from addr
+            addr = rand() % (65536 - BUF_LEN);
             out_buf[0] = 0xB;
             out_buf[1] = addr >> 8;
             out_buf[2] = addr & 0xff;
