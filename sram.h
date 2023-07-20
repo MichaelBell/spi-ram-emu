@@ -1,3 +1,5 @@
+// Copyright 2023 (c) Michael Bell
+// The BSD 3 clause license applies
 #pragma once
 
 #include <stdint.h>

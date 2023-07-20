@@ -35,6 +35,25 @@ A fast read command is the byte 0x0B followed by a 16-bit address, MSB first.  T
 
 A write command is they byte 0x02 followed by a 16-bit address, MSB first.  The data to be written to that address follows immediately.  There is no limit to the length of the write, except that it may not go beyond the end of the RAM.  The read is terminated by stopping the SCK and raising CS.
 
+# Using in your own project
+
+It is easiest to integrate by copying the 4 files beginning sram from this project into your project.  Alternatively, you could include this project as a submodule.
+
+You will need to include the `sram.c` file in your source files, and add
+```
+pico_generate_pio_header(${NAME} ${CMAKE_CURRENT_LIST_DIR}/sram.pio)
+
+set_target_properties(${NAME} PROPERTIES PICO_TARGET_LINKER_SCRIPT ${CMAKE_CURRENT_LIST_DIR}/sram_memmap.ld)
+pico_add_link_depend(${NAME} ${CMAKE_CURRENT_LIST_DIR}/sram_memmap.ld)
+```
+to your CMakeLists.txt to use a custom memory map that reserves the 64kB memory region for the RAM.
+
+Configure the pins, and if necessary DMA channels and PIO SMs by editing `sram.h`.
+
+Start the RAM by including `sram.h` and calling `setup_simulated_sram()`.  This sets up the PIOs and launches the handler on core1.
+
+Note that in order to meet the strict timing requirements, the RAM simulation must have dedicated use of core1, and it uses most of the PIO instructions on both PIOs, though there are still a few instructions spare.
+
 # Limitations / Bugs
 
 Currently the time that CS must be high between operations is uncharacterised, but it is likely to be around 50 SYS clocks.

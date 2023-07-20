@@ -1,3 +1,5 @@
+// Copyright 2023 (c) Michael Bell
+// The BSD 3 clause license applies
 #include <hardware/pio.h>
 #include <hardware/dma.h>
 #include <pico/multicore.h>
