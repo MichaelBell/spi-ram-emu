@@ -33,7 +33,7 @@ A fast read command is the byte 0x0B followed by a 16-bit address, MSB first.  T
 
 ## WRITE
 
-A write command is they byte 0x02 followed by a 16-bit address, MSB first.  The data to be written to that address follows immediately.  There is no limit to the length of the write, except that it may not go beyond the end of the RAM.  The read is terminated by stopping the SCK and raising CS.
+A write command is the byte 0x02 followed by a 16-bit address, MSB first.  The data to be written to that address follows immediately.  There is no limit to the length of the write, except that it may not go beyond the end of the RAM.  The read is terminated by stopping the SCK and raising CS.
 
 # Using in your own project
 
