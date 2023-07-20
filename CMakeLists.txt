@@ -11,7 +11,7 @@ project(${NAME} C CXX ASM)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
-set(PICO_COPY_TO_RAM 1)
+#set(PICO_COPY_TO_RAM 1)
 
 # Initialize the SDK
 pico_sdk_init()
@@ -45,6 +45,9 @@ target_link_libraries(${NAME}
     hardware_dma
     hardware_pio
 )
+
+set_target_properties(${NAME} PROPERTIES PICO_TARGET_LINKER_SCRIPT ${CMAKE_CURRENT_LIST_DIR}/sram_memmap.ld)
+pico_add_link_depend(${NAME} ${CMAKE_CURRENT_LIST_DIR}/sram_memmap.ld)
 
 pico_generate_pio_header(${NAME} ${CMAKE_CURRENT_LIST_DIR}/sram.pio)
 pico_generate_pio_header(${NAME} ${CMAKE_CURRENT_LIST_DIR}/spi.pio)

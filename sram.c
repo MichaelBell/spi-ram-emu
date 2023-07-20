@@ -13,9 +13,7 @@
 
 static int pio_read_offset;
 
-//uint8_t emu_ram[65536];
-// TODO: This is a massive hack - sort out the memory map
-static uint8_t* emu_ram = (uint8_t*)0x20030000;
+uint8_t __attribute__((section(".spi_ram.emu_ram"))) emu_ram[65536];
 
 static void setup_sram_pio()
 {

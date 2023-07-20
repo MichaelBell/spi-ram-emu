@@ -1,83 +1,42 @@
-# Pico C++ Boilerplate Project <!-- omit in toc -->
+# Simulated SPI RAM on RP2040
 
-This project is intended as a starting point for working with the Pico SDK and Pimoroni Libraries in C++.
+An SPI RAM implementation for RP2040.
 
-- [Before you start](#before-you-start)
-- [Preparing your build environment](#preparing-your-build-environment)
-- [Grab the Pimoroni libraries](#grab-the-pimoroni-libraries)
-- [Clone this boilerplate](#clone-this-boilerplate)
-- [Prepare Visual Studio Code](#prepare-visual-studio-code)
-- [Prepare your project](#prepare-your-project)
-- [Pick your LICENSE](#pick-your-license)
+This project allows the RP2040 to act as if it were an serial SPI RAM, similar to a [23LC512](https://ww1.microchip.com/downloads/aemDocuments/documents/MPD/ProductDocuments/DataSheets/23A512-23LC512-512-Kbit-SPI-Serial-SRAM-with-SDI-and-SQI-Interface-20005155C.pdf).
 
-## Before you start
+The commands READ (0x03), WRITE (0x02) and FAST READ (0x0B) are implented.  The RAM operates in sequential mode, and operations must not go beyond the end of the RAM.
 
-It's easier if you make a `pico` directory or similar in which you keep the SDK, Pimoroni Libraries and your projects alongside each other. This makes it easier to include libraries.
+Only SPI mode is supported (no DSPI/QSPI).
 
-## Preparing your build environment
+The maximum clock rate supported depends on the system clock speed and the operation:
 
-Install build requirements:
+| Operation | Max speed | Max speed at 125MHz SYS clock |
+| --------- | --------- | ----------------------------- |
+| READ  | SYS clock / 10 | 12.5 MHz |
+| READ (aligned) | SYS clock / 8 | 15.6 MHz |
+| FAST READ | SYS clock / 8 | 15.6 MHz |
+| WRITE | SYS clock / 6 | 20.8 MHz |
 
-```bash
-sudo apt update
-sudo apt install cmake gcc-arm-none-eabi build-essential
-```
+A READ is considered to be aligned if the start address is a multiple of 4.  There is no requirement for the length of an aligned read to be a multiple of 4 bytes.
 
-And the Pico SDK:
+# Command details
 
-```
-git clone https://github.com/raspberrypi/pico-sdk
-cd pico-sdk
-git submodule update --init
-export PICO_SDK_PATH=`pwd`
-cd ../
-```
+The SPI slave works in SPI mode 0 or 3 - data is transferred in both directions on the rising edge of SCK.  All and addresses are transferred MSB first.
 
-The `PICO_SDK_PATH` set above will only last the duration of your session.
+## READ
 
-You should should ensure your `PICO_SDK_PATH` environment variable is set by `~/.profile`:
+A read command is the byte 0x03 followed by a 16-bit address, MSB first.  Data transfer begins immediately with no delay cycles.  There is no limit to the length of the read, except that it may not go beyond the end of the RAM.  The read is terminated by stopping the SCK and raising CS.
 
-```
-export PICO_SDK_PATH="/path/to/pico-sdk"
-```
+## FAST READ
 
-## Grab the Pimoroni libraries
+A fast read command is the byte 0x0B followed by a 16-bit address, MSB first.  There are then 8 delay cycles (one dummy byte transfer) before data transfer begins.  Otherwise it is the same as a READ, except it might work at a faster clock rate.
 
-```
-git clone https://github.com/pimoroni/pimoroni-pico
-```
+## WRITE
 
-## Clone this boilerplate
+A write command is they byte 0x02 followed by a 16-bit address, MSB first.  The data to be written to that address follows immediately.  There is no limit to the length of the write, except that it may not go beyond the end of the RAM.  The read is terminated by stopping the SCK and raising CS.
 
-```
-git clone https://github.com/pimoroni/pico-boilerplate
-cd pico-boilerplate
-```
+# Limitations / Bugs
 
-If you have not or don't want to set `PICO_SDK_PATH` you can edit `.vscode/settings.json` to pass the path directly to CMake.
+Currently the time that CS must be high between operations is uncharacterised, but it is likely to be around 50 SYS clocks.
 
-## Prepare Visual Studio Code
-
-Open VS Code and hit `Ctrl+Shift+P`.
-
-Type `Install` and select `Extensions: Install Extensions`.
-
-Make sure you install:
-
-1. C/C++
-2. CMake
-3. CMake Tools
-4. Cortex-Debug (optional: for debugging via a Picoprobe or Pi GPIO)
-5. Markdown All in One (recommended: for preparing your own README.md)
-
-## Prepare your project
-
-Edit `CMakeLists.txt` and follow the instructions, you should make sure you:
-
-1. edit your project name
-2. include the libraries you need
-2. link the libraries to your project
-
-## Pick your LICENSE
-
-We've included a copy of BSD 3-Clause License to match that used in Raspberry Pi's Pico SDK and Pico Examples. You should review this and check it's appropriate for your project before publishing your code.
+Aborting operations before the data transfer starts is not supported.
