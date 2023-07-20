@@ -16,9 +16,16 @@ set(PICO_COPY_TO_RAM 1)
 # Initialize the SDK
 pico_sdk_init()
 
+add_compile_options(-Wall
+        -Wno-format
+        -Wno-unused-function
+        -Wno-maybe-uninitialized
+        )
+
 # Add your source files
 add_executable(${NAME}
     main.cpp # <-- Add source files here!
+    sram.c
     logic.c
     pio_spi.c
 )
