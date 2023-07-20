@@ -21,15 +21,18 @@ extern "C" {
 #define SPI_CS 20
 #define SPI_MISO 21
 
-PIO pio_read = pio1;
-PIO pio_write = pio0;
-int pio_read_sm;
-int pio_read_offset;
-int pio_write_sm;
-int pio_write_offset;
+// We define the SMs and DMA channels to avoid memory accesses
+// looking them up which saves precious cycles processing the SPI commands.
+#define pio_read_sm 1
+#define pio_read pio1
+#define pio_write_sm 1
+#define pio_write pio0
+#define pio_write_offset 0  // This must be 0
+#define rx_channel 0
+#define tx_channel 1
+#define tx_channel2 2
 
-int rx_channel;
-int tx_channel, tx_channel2;
+int pio_read_offset;
 
 //uint8_t emu_ram[65536];
 // TODO: This is a massive hack - sort out the memory map
@@ -38,9 +41,9 @@ uint8_t* emu_ram = (uint8_t*)0x20030000;
 void init_sram_pio()
 {
     pio_read_offset = pio_add_program(pio_read, &sram_read_program);
-    pio_read_sm = pio_claim_unused_sm(pio_read, true);
-    pio_write_offset = 0; pio_add_program_at_offset(pio_write, &sram_write_program, 0);
-    pio_write_sm = 0; pio_sm_claim(pio_write, 0);
+    pio_sm_claim(pio_read, pio_read_sm);
+    pio_add_program_at_offset(pio_write, &sram_write_program, pio_write_offset);
+    pio_sm_claim(pio_write, pio_write_sm);
 
     sram_read_program_init(pio_read, pio_read_sm, pio_read_offset, SPI_MOSI);
     sram_write_program_init(pio_write, pio_write_sm, pio_write_offset, SPI_MOSI, SPI_MISO);
@@ -102,9 +105,9 @@ void __scratch_x("core1_main") core1_main()
 {
     init_sram_pio();
 
-    rx_channel = 0; dma_channel_claim(0);
-    tx_channel = 1; dma_channel_claim(1);
-    tx_channel2 = 2; dma_channel_claim(2);
+    dma_channel_claim(rx_channel);
+    dma_channel_claim(tx_channel);
+    dma_channel_claim(tx_channel2);
 
     reset_rx_channel();
     reset_tx_channel();
@@ -112,16 +115,12 @@ void __scratch_x("core1_main") core1_main()
     while (true) {
         uint32_t cmd = pio_sm_get_blocking(pio_read, pio_read_sm);
         if (cmd == 0x3) {
-            // Read
-            //addr += pio_sm_get_blocking(pio, pio_read_sm) << 8;
-            //uint32_t addr = pio_sm_get_blocking(pio, pio_read_sm);
-            //printf("R%08x\n", addr);
-            dma_channel_start(2);
-
-            //dma_hw->ch[1].al3_read_addr_trig = addr;
+            // Read - this works by transferring the address direct from the Read PIO SM
+            // direct to the read address of the transmit DMA channel.
+            dma_channel_start(tx_channel2);
 
             while (gpio_get(SPI_CS) == 0);
-            dma_channel_abort(1);
+            dma_channel_abort(tx_channel);
         }
         else if (cmd == 0xB) {
             // Fast read
@@ -129,34 +128,34 @@ void __scratch_x("core1_main") core1_main()
             pio_write->instr_mem[sram_write_offset_addr_loop_end] = pio_encode_jmp(sram_write_offset_fast_read);
 
             // And change the write size to 8
-            hw_clear_bits(&dma_hw->ch[1].al1_ctrl, DMA_CH0_CTRL_TRIG_DATA_SIZE_BITS);
-            hw_set_bits(&pio_write->sm[0].shiftctrl, 8 << PIO_SM0_SHIFTCTRL_PULL_THRESH_LSB);
+            hw_clear_bits(&dma_hw->ch[tx_channel].al1_ctrl, DMA_CH0_CTRL_TRIG_DATA_SIZE_BITS);
+            hw_set_bits(&pio_write->sm[pio_write_sm].shiftctrl, 8 << PIO_SM0_SHIFTCTRL_PULL_THRESH_LSB);
 
-            // Standard address handling
+            // Transfer the address manually
             uint32_t addr = pio_sm_get_blocking(pio_read, pio_read_sm);
             addr |= pio_sm_get_blocking(pio_read, pio_read_sm);
-            dma_hw->ch[1].al3_read_addr_trig = addr;
+            dma_hw->ch[tx_channel].al3_read_addr_trig = addr;
 
             while (gpio_get(SPI_CS) == 0);
-            dma_channel_abort(1);
+            dma_channel_abort(tx_channel);
 
             // Unpatch the write program
             pio_write->instr_mem[sram_write_offset_addr_loop_end] = pio_encode_jmp_pin(sram_write_offset_addr_two);
 
             // And change the write size back to 32
-            hw_set_bits(&dma_hw->ch[1].al1_ctrl, 2 << DMA_CH10_CTRL_TRIG_DATA_SIZE_LSB);
-            hw_clear_bits(&pio_write->sm[0].shiftctrl, PIO_SM0_SHIFTCTRL_PULL_THRESH_BITS);
+            hw_set_bits(&dma_hw->ch[tx_channel].al1_ctrl, 2 << DMA_CH10_CTRL_TRIG_DATA_SIZE_LSB);
+            hw_clear_bits(&pio_write->sm[pio_write_sm].shiftctrl, PIO_SM0_SHIFTCTRL_PULL_THRESH_BITS);
         }
         else if (cmd == 0x2) {
             // Write
             //addr += pio_sm_get_blocking(pio, pio_read_sm) << 8;
             uint32_t addr = pio_sm_get_blocking(pio_read, pio_read_sm);
             addr |= pio_sm_get_blocking(pio_read, pio_read_sm);
-            dma_hw->ch[0].al2_write_addr_trig = addr;
+            dma_hw->ch[rx_channel].al2_write_addr_trig = addr;
 
             while (gpio_get(SPI_CS) == 0);
             while (!pio_sm_is_rx_fifo_empty(pio_read, pio_read_sm));
-            dma_channel_abort(0);
+            dma_channel_abort(rx_channel);
         }
         else {
             // Ignore unknown command
@@ -207,7 +206,7 @@ int main() {
     uint8_t out_buf[BUF_LEN], in_buf[BUF_LEN];
 
     int logic_sm = pio_claim_unused_sm(pio1, true);
-    //logic_analyser_init(pio1, logic_sm, SPI_MOSI, 4, 1);    
+    //logic_analyser_init(pio1, logic_sm, SPI_MOSI, 4, 1);
 
     int speed_incr = 1;
     for (int divider = 12; divider > 1; divider -= speed_incr) 
@@ -219,6 +218,7 @@ int main() {
         for (int runs = 0; runs < 2000; ++runs) {
             int addr = (rand() % (65536 - BUF_LEN)) & ~3;
 
+#if 1
             // Read 8 bytes from addr
             //logic_analyser_arm(pio1, logic_sm, 11, logic_buf, 128, SPI_CS, false);
             out_buf[0] = 0x3;
@@ -264,6 +264,7 @@ int main() {
                 speed_incr = 1;
                 break;
             }
+#endif 
 
 #if 1
             // Fast read 8 bytes from addr
@@ -278,8 +279,8 @@ int main() {
 
 #if 0
             printf("Fast read from addr %04x: ", addr);
-            ok = true;
-            data_buf = &in_buf[4];
+            bool ok = true;
+            uint8_t* data_buf = &in_buf[4];
             for (int i = 0; i < 8; ++i) {
                 printf("%02hhx ", data_buf[i]);
                 if (data_buf[i] != emu_ram[addr + i]) ok = false;
@@ -297,7 +298,7 @@ int main() {
             //sleep_us(1);
             if (!ok) {
                 printf("Fast read from addr %04x: ", addr);
-                uint8_t* data_buf = &in_buf[3];
+                uint8_t* data_buf = &in_buf[4];
                 for (int i = 0; i < 8; ++i) {
                     printf("%02hhx ", data_buf[i]);
                 }

@@ -19,9 +19,12 @@ read_cmd_loop:
     wait 1 pin 1
     in pins, 1
     jmp x--, read_cmd_loop
+    wait 0 pin 1
     push
     in y, 16
-    set x, 13
+    wait 1 pin 1
+    in pins, 1
+    set x, 12
 read_addr_loop:
     wait 0 pin 1
     wait 1 pin 1
