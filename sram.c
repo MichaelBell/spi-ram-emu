@@ -85,6 +85,17 @@ static void setup_tx_channel()
     );
 }
 
+static __always_inline void wait_for_cs_high() {
+    while (true) {
+        if (gpio_get(SIM_SRAM_SPI_CS)) {
+            if (gpio_get(SIM_SRAM_SPI_CS)) {
+                // Must be high for 2 cycles to count - avoids deselecting on a glitch.
+                break;
+            }
+        }
+    }
+}
+
 static void __scratch_x("core1_main") core1_main()
 {
     while (true) {
@@ -94,7 +105,7 @@ static void __scratch_x("core1_main") core1_main()
             // direct to the read address of the transmit DMA channel.
             dma_channel_start(SIM_SRAM_tx_channel2);
 
-            while (gpio_get(SIM_SRAM_SPI_CS) == 0);
+            wait_for_cs_high();
             dma_channel_abort(SIM_SRAM_tx_channel);
         }
         else if (cmd == 0xB) {
@@ -111,7 +122,7 @@ static void __scratch_x("core1_main") core1_main()
             addr |= pio_sm_get_blocking(SIM_SRAM_pio_read, SIM_SRAM_pio_read_sm);
             dma_hw->ch[SIM_SRAM_tx_channel].al3_read_addr_trig = addr;
 
-            while (gpio_get(SIM_SRAM_SPI_CS) == 0);
+            wait_for_cs_high();
             dma_channel_abort(SIM_SRAM_tx_channel);
 
             // Unpatch the write program
@@ -128,13 +139,13 @@ static void __scratch_x("core1_main") core1_main()
             addr |= pio_sm_get_blocking(SIM_SRAM_pio_read, SIM_SRAM_pio_read_sm);
             dma_hw->ch[SIM_SRAM_rx_channel].al2_write_addr_trig = addr;
 
-            while (gpio_get(SIM_SRAM_SPI_CS) == 0);
+            wait_for_cs_high();
             while (!pio_sm_is_rx_fifo_empty(SIM_SRAM_pio_read, SIM_SRAM_pio_read_sm));
             dma_channel_abort(SIM_SRAM_rx_channel);
         }
         else {
             // Ignore unknown command
-            while (gpio_get(SIM_SRAM_SPI_CS) == 0);
+            wait_for_cs_high();
         }
         pio_sm_set_enabled(SIM_SRAM_pio_write, SIM_SRAM_pio_write_sm, false);
         pio_sm_clear_fifos(SIM_SRAM_pio_write, SIM_SRAM_pio_write_sm);

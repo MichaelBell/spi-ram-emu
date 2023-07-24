@@ -24,6 +24,7 @@ int main() {
 
     sleep_ms(5000);
 
+#if 0
     pio_spi_inst_t spi = {
         .pio = pio1,
         .sm = pio_claim_unused_sm(pio1, true),
@@ -197,4 +198,16 @@ int main() {
         }
         if (divider > 50) divider = 50;
     }
+#else
+    int logic_sm = pio_claim_unused_sm(pio1, true);
+    logic_analyser_init(pio1, logic_sm, SIM_SRAM_SPI_MOSI, 4, 1);
+
+    while (true) {
+        while (gpio_get(SIM_SRAM_SPI_CS) == 0);
+        logic_analyser_arm(pio1, logic_sm, 11, logic_buf, 128, SIM_SRAM_SPI_CS, false);
+        while (gpio_get(SIM_SRAM_SPI_CS) == 1);
+        while (gpio_get(SIM_SRAM_SPI_CS) == 0);
+        print_capture_buf(logic_buf, SIM_SRAM_SPI_MOSI, 4, 128*8);
+    }
+#endif
 }
