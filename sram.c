@@ -13,6 +13,11 @@
 // looking them up which saves precious cycles processing the SPI commands.
 #define pio_write_offset 0  // This must be 0
 
+// For 24 bit addresses, the commands are left shifted.
+#define READ_CMD (0x03 << (SIM_SRAM_ADDR_BITS - 16))
+#define FAST_READ_CMD (0x0B << (SIM_SRAM_ADDR_BITS - 16))
+#define WRITE_CMD (0x02 << (SIM_SRAM_ADDR_BITS - 16))
+
 static int pio_read_offset;
 
 uint8_t __attribute__((section(".spi_ram.emu_ram"))) emu_ram[65536];
@@ -26,6 +31,11 @@ static void setup_sram_pio()
 
     sram_read_program_init(SIM_SRAM_pio_read, SIM_SRAM_pio_read_sm, pio_read_offset, SIM_SRAM_SPI_MOSI);
     sram_write_program_init(SIM_SRAM_pio_write, SIM_SRAM_pio_write_sm, pio_write_offset, SIM_SRAM_SPI_MOSI, SIM_SRAM_SPI_MISO);
+
+#if SIM_SRAM_ADDR_BITS != 16
+    SIM_SRAM_pio_read->instr_mem[pio_read_offset + 1] = pio_encode_set(pio_x, SIM_SRAM_ADDR_BITS - 9);
+    SIM_SRAM_pio_write->instr_mem[pio_write_offset + 1] = pio_encode_set(pio_x, SIM_SRAM_ADDR_BITS + 6);
+#endif
 }
 
 static void setup_rx_channel()
@@ -100,7 +110,7 @@ static void __scratch_x("core1_main") core1_main()
 {
     while (true) {
         uint32_t cmd = pio_sm_get_blocking(SIM_SRAM_pio_read, SIM_SRAM_pio_read_sm);
-        if (cmd == 0x3) {
+        if (cmd == READ_CMD) {
             // Read - this works by transferring the address direct from the Read PIO SM
             // direct to the read address of the transmit DMA channel.
             dma_channel_start(SIM_SRAM_tx_channel2);
@@ -108,7 +118,7 @@ static void __scratch_x("core1_main") core1_main()
             wait_for_cs_high();
             dma_channel_abort(SIM_SRAM_tx_channel);
         }
-        else if (cmd == 0xB) {
+        else if (cmd == FAST_READ_CMD) {
             // Fast read
             // Need to patch the write program to do extra delay cycles
             SIM_SRAM_pio_write->instr_mem[sram_write_offset_addr_loop_end] = pio_encode_jmp(sram_write_offset_fast_read);
@@ -132,7 +142,7 @@ static void __scratch_x("core1_main") core1_main()
             hw_set_bits(&dma_hw->ch[SIM_SRAM_tx_channel].al1_ctrl, 2 << DMA_CH10_CTRL_TRIG_DATA_SIZE_LSB);
             hw_clear_bits(&SIM_SRAM_pio_write->sm[SIM_SRAM_pio_write_sm].shiftctrl, PIO_SM0_SHIFTCTRL_PULL_THRESH_BITS);
         }
-        else if (cmd == 0x2) {
+        else if (cmd == WRITE_CMD) {
             // Write
             //addr += pio_sm_get_blocking(pio, pio_read_sm) << 8;
             uint32_t addr = pio_sm_get_blocking(SIM_SRAM_pio_read, SIM_SRAM_pio_read_sm);

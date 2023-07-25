@@ -26,9 +26,14 @@
 #define SIM_SRAM_tx_channel    1
 #define SIM_SRAM_tx_channel2   2
 
+// 16 or 24 address bits
+#define SIM_SRAM_ADDR_BITS 24
+
 // Setup the simulated SRAM and launch core1 to service the commands.
 //
 // It is best to call this before other initialization, so that
 // the hardcoded DMA channels and SMs are claimed before other resources
 // are claimed.
 uint8_t* setup_simulated_sram();
+
+extern uint8_t emu_ram[65536];

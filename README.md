@@ -35,6 +35,12 @@ A fast read command is the byte 0x0B followed by a 16-bit address, MSB first.  T
 
 A write command is the byte 0x02 followed by a 16-bit address, MSB first.  The data to be written to that address follows immediately.  There is no limit to the length of the write, except that it may not go beyond the end of the RAM.  The read is terminated by stopping the SCK and raising CS.
 
+# USB support
+
+This branch enables the RAM to be inspected over a USB mass storage interface.  You can edit the RAM contents using a hex editor.  Note that changes made over SPI aren't visible if your OS has already cached the file.  Try ejecting the drive to refresh it.
+
+A new file written to the drive should get written into the start of RAM.  This only works once because of OS caching, you must eject the drive in order to do it again.
+
 # Using in your own project
 
 It is easiest to integrate by copying the 4 files beginning sram from this project into your project.  Alternatively, you could include this project as a submodule.

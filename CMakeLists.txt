@@ -24,10 +24,10 @@ add_compile_options(-Wall
 
 # Add your source files
 add_executable(${NAME}
-    main.cpp # <-- Add source files here!
+    main.c # <-- Add source files here!
     sram.c
-    logic.c
-    pio_spi.c
+    msc_disk.c
+    usb_descriptors.c
 )
 
 # Include required libraries
@@ -44,13 +44,17 @@ target_link_libraries(${NAME}
     pico_multicore
     hardware_dma
     hardware_pio
+    tinyusb_device tinyusb_board
 )
+
+# Make sure TinyUSB can find tusb_config.h
+target_include_directories(${NAME} PUBLIC
+        ${CMAKE_CURRENT_LIST_DIR})
 
 set_target_properties(${NAME} PROPERTIES PICO_TARGET_LINKER_SCRIPT ${CMAKE_CURRENT_LIST_DIR}/sram_memmap.ld)
 pico_add_link_depend(${NAME} ${CMAKE_CURRENT_LIST_DIR}/sram_memmap.ld)
 
 pico_generate_pio_header(${NAME} ${CMAKE_CURRENT_LIST_DIR}/sram.pio)
-pico_generate_pio_header(${NAME} ${CMAKE_CURRENT_LIST_DIR}/spi.pio)
 
 # create map/bin/hex file etc.
 pico_add_extra_outputs(${NAME})
