@@ -95,22 +95,28 @@ static void setup_tx_channel()
     );
 }
 
-static __always_inline void wait_for_cs_high() {
-    while (true) {
+static inline bool is_cs_high() {
+    if (gpio_get(SIM_SRAM_SPI_CS)) {
         if (gpio_get(SIM_SRAM_SPI_CS)) {
-            if (gpio_get(SIM_SRAM_SPI_CS)) {
-                // Must be high for 2 cycles to count - avoids deselecting on a glitch.
-                break;
-            }
+            // Must be high for 2 cycles to count - avoids deselecting on a glitch.
+            return true;
         }
     }
+    return false;
+}
+
+static __always_inline void wait_for_cs_high() {
+    while (!is_cs_high());
 }
 
 static void __scratch_x("core1_main") core1_main()
 {
     while (true) {
         uint32_t cmd = pio_sm_get_blocking(SIM_SRAM_pio_read, SIM_SRAM_pio_read_sm);
-        if (cmd == READ_CMD) {
+        if (is_cs_high()) {
+            // Abort before the address
+        }
+        else if (cmd == READ_CMD) {
             // Read - this works by transferring the address direct from the Read PIO SM
             // direct to the read address of the transmit DMA channel.
             dma_channel_start(SIM_SRAM_tx_channel2);
