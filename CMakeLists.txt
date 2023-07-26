@@ -44,6 +44,7 @@ target_link_libraries(${NAME}
     pico_multicore
     hardware_dma
     hardware_pio
+    hardware_watchdog
     tinyusb_device tinyusb_board
 )
 

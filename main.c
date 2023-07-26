@@ -28,6 +28,7 @@
 #include <string.h>
 
 #include <pico/stdlib.h>
+#include <hardware/watchdog.h>
 
 #include "bsp/board.h"
 #include "tusb.h"
@@ -63,8 +64,10 @@ int main(void)
 
   setup_simulated_sram();
 
-  // Init the RAM to known values
-  for (int i = 0; i < 65536; ++i) emu_ram[i] = i;
+  if (!watchdog_caused_reboot()) {
+    // Init the RAM to known values
+    for (int i = 0; i < 65536; ++i) emu_ram[i] = i;
+  }
 
   // init device stack on configured roothub port
   tud_init(BOARD_TUD_RHPORT);

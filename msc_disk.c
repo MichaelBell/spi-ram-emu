@@ -26,6 +26,8 @@
 #include "bsp/board.h"
 #include "tusb.h"
 
+#include <hardware/watchdog.h>
+
 #include "sram.h"
 
 #if CFG_TUD_MSC
@@ -38,9 +40,11 @@ static bool ejected = false;
 // CFG_EXAMPLE_MSC_READONLY defined
 
 #define README_CONTENTS \
-"This is tinyusb's MassStorage Class demo.\r\n\r\n\
-If you find any bugs or get any questions, feel free to file an\r\n\
-issue at github.com/hathach/tinyusb"
+"SPI RAM Emulation - USB access\r\n\r\n\
+You can inspect and edit the contents of the RAM using RAM.BIN, or\r\n\
+program the RAM by copying a binary file on to this drive.\r\n\
+The drive will reboot after a file is copied on to it, to clear the OS\r\n\
+file system cache."
 
 #define MSC_BASIC_BLOCKS 4
 #define MSC_EMU_RAM_BLOCKS 128
@@ -133,7 +137,7 @@ uint8_t msc_disk[MSC_BASIC_BLOCKS][DISK_BLOCK_SIZE] =
       'S' , 'P' , 'I' , '-' , 'E' , 'M' , 'U' , ' ' , 'M' , 'S' , 'C' , 0x08, 0x00, 0x00, 0x00, 0x00,
       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4F, 0x6D, 0x65, 0x43, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
       // second entry is readme file
-      'R' , 'E' , 'A' , 'D' , 'M' , 'E' , ' ' , ' ' , 'T' , 'X' , 'T' , 0x20, 0x00, 0xC6, 0x52, 0x6D,
+      'R' , 'E' , 'A' , 'D' , 'M' , 'E' , ' ' , ' ' , 'T' , 'X' , 'T' , 0x24, 0x00, 0xC6, 0x52, 0x6D,
       0x65, 0x43, 0x65, 0x43, 0x00, 0x00, 0x88, 0x6D, 0x65, 0x43, 0x02, 0x00,
       sizeof(README_CONTENTS)-1, 0x00, 0x00, 0x00, // readme's files size (4 Bytes)
       // third entry is binary ram file
@@ -248,6 +252,8 @@ bool tud_msc_is_writable_cb (uint8_t lun)
 #endif
 }
 
+static bool reboot_on_write_complete = false;
+
 // Callback invoked when received WRITE10 command.
 // Process data in buffer to disk's storage and return number of written bytes
 int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset, uint8_t* buffer, uint32_t bufsize)
@@ -267,7 +273,10 @@ int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset, uint8_t* 
     // This allows the OS to write a binary file, assuming it attempts to allocate
     // it contiguously after the existing copy of the RAM.
     // Probably using UF2 is a better idea!!
-    if (lba >= MSC_BASIC_BLOCKS + MSC_EMU_RAM_BLOCKS) lba -= MSC_EMU_RAM_BLOCKS;
+    if (lba >= MSC_BASIC_BLOCKS + MSC_EMU_RAM_BLOCKS) {
+      lba -= MSC_EMU_RAM_BLOCKS;
+      reboot_on_write_complete = true;
+    }
     
     uint8_t* addr = &emu_ram[(lba - MSC_BASIC_BLOCKS) * DISK_BLOCK_SIZE + offset];
     memcpy(addr, buffer, bufsize);
@@ -277,6 +286,17 @@ int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset, uint8_t* 
   }
 
   return (int32_t) bufsize;
+}
+
+void tud_msc_write10_complete_cb(uint8_t lun) {
+  (void) lun;
+
+  if (reboot_on_write_complete) {
+    // After a write of a new file, reboot after 500ms if there are no more writes.
+    // This resets the USB forcing the host to re-read the FAT, allowing reprogramming.
+    // The EMU ram keeps its values when the watchdog causes the reboot.
+    watchdog_reboot(0, 0, 500);
+  }
 }
 
 // Callback invoked when received an SCSI command not in built-in list below
