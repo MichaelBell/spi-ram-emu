@@ -29,6 +29,7 @@
 
 #include <pico/stdlib.h>
 #include <hardware/watchdog.h>
+#include <hardware/uart.h>
 
 #include "bsp/board.h"
 #include "tusb.h"
@@ -53,6 +54,7 @@ enum  {
 static uint32_t blink_interval_ms = BLINK_NOT_MOUNTED;
 
 void led_blinking_task(void);
+void cdc_init();
 void cdc_task(void);
 
 /*------------- MAIN -------------*/
@@ -68,6 +70,8 @@ int main(void)
     // Init the RAM to known values
     for (int i = 0; i < 65536; ++i) emu_ram[i] = i;
   }
+
+  cdc_init();
 
   // init device stack on configured roothub port
   tud_init(BOARD_TUD_RHPORT);
@@ -118,24 +122,45 @@ void tud_resume_cb(void)
 //--------------------------------------------------------------------+
 // USB CDC
 //--------------------------------------------------------------------+
+
+#define UART_BRIDGE_UART uart1
+#define UART_BRIDGE_BAUD 93750
+#define UART_BRIDGE_TX 8
+#define UART_BRIDGE_RX 9
+#define UART_BRIDGE_CTS 10
+
+void cdc_init()
+{
+  uart_init(UART_BRIDGE_UART, UART_BRIDGE_BAUD);
+
+  gpio_set_function(UART_BRIDGE_TX, GPIO_FUNC_UART);
+  gpio_set_function(UART_BRIDGE_RX, GPIO_FUNC_UART);
+
+#ifdef UART_BRIDGE_CTS
+  gpio_set_function(UART_BRIDGE_CTS, GPIO_FUNC_UART);
+  uart_set_hw_flow(UART_BRIDGE_UART, true, false);
+#endif
+}
+
 void cdc_task(void)
 {
   // connected() check for DTR bit
   // Most but not all terminal client set this when making connection
-  // if ( tud_cdc_connected() )
+  if ( tud_cdc_connected() )
   {
-    // connected and there are data available
-    if ( tud_cdc_available() )
+    while (tud_cdc_available() && uart_is_writable(UART_BRIDGE_UART))
     {
-      // read data
-      char buf[64];
-      uint32_t count = tud_cdc_read(buf, sizeof(buf));
-      (void) count;
+      uart_get_hw(UART_BRIDGE_UART)->dr = tud_cdc_read_char();
+    }
 
-      // Echo back
-      // Note: Skip echo by commenting out write() and write_flush()
-      // for throughput test e.g
-      //    $ dd if=/dev/zero of=/dev/ttyACM0 count=10000
+    uint32_t count;
+    uint8_t buf[32];
+    for (count = 0; count < 32 && uart_is_readable(UART_BRIDGE_UART); ++count)
+    {
+      buf[count] = (uint8_t)uart_get_hw(UART_BRIDGE_UART)->dr;
+    }
+
+    if (count > 0) {
       tud_cdc_write(buf, count);
       tud_cdc_write_flush();
     }

@@ -45,6 +45,7 @@ target_link_libraries(${NAME}
     hardware_dma
     hardware_pio
     hardware_watchdog
+    hardware_uart
     tinyusb_device tinyusb_board
 )
 
